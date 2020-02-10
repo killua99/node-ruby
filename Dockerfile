@@ -1,76 +1,61 @@
-FROM node:12-alpine AS build-base
+FROM node:12-buster-slim
 
-# some of ruby's build scripts are written in ruby
-# we purge system ruby later to make sure our final image uses what we just built
-# readline-dev vs libedit-dev: https://bugs.ruby-lang.org/issues/11869 and https://github.com/docker-library/ruby/issues/75
 RUN set -eux; \
     \
-    apk add --no-cache \
-        ca-certificates \
-        build-base \
-        gmp-dev \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         git \
         yarn \
-        python \
-        icu-dev \
-        protobuf-dev \
+        icu-devtools \
+        protobuf-compiler \
         imagemagick \
         ffmpeg \
-        libidn-dev \
-        yaml-dev \
-        postgresql-dev \
+        libidn11 \
+        yaml-mode \
+        postgresql-11 \
         tini \
-        wget; \
+        bzip2 \
+        ca-certificates \
+        libffi-dev \
+        libgmp-dev \
+        libssl-dev \
+        libyaml-dev \
+        procps \
+        zlib1g-dev \
+        libjemalloc-dev \
+    ; \
+    rm -rf /var/lib/apt/lists/*; \
     \
-    apk add --no-cache --virtual .build-deps \
+    savedAptMark="$(apt-mark showmanual)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         autoconf \
         bison \
-        bzip2 \
-        bzip2-dev \
-        ca-certificates \
-        coreutils \
-        dpkg-dev dpkg \
+        dpkg-dev \
         gcc \
-        gdbm-dev \
-        glib-dev \
-        libc-dev \
-        libffi-dev \
+        libbz2-dev \
+        libgdbm-compat-dev \
+        libgdbm-dev \
+        libglib2.0-dev \
+        libncurses-dev \
+        libreadline-dev \
         libxml2-dev \
         libxslt-dev \
-        linux-headers \
         make \
-        ncurses-dev \
-        openssl \
-        openssl-dev \
-        procps \
-        readline-dev \
         ruby \
-        tar \
-        xz \
-        zlib-dev && \
+        wget \
+        xz-utils \
+    ; \
+    rm -rf /var/lib/apt/lists/*; \
     mkdir -p /usr/local/etc; \
     { \
         echo 'install: --no-document'; \
         echo 'update: --no-document'; \
     } >> /usr/local/etc/gemrc
 
-# Install jemalloc
-ENV JE_VER="5.2.1"
-
-RUN set -eu; \
-    wget https://github.com/jemalloc/jemalloc/archive/${JE_VER}.tar.gz; \
-    tar xf ${JE_VER}.tar.gz; \
-    cd jemalloc-${JE_VER} && \
-    ./autogen.sh && \
-    ./configure --prefix=/opt/jemalloc && \
-    make -j$(nproc) > /dev/null && \
-    make install_bin install_include install_lib
-
-ENV RUBY_MAJOR="2.6"
-ENV RUBY_VERSION="2.6.5"
-ENV RUBY_DOWNLOAD_SHA256="d5d6da717fd48524596f9b78ac5a2eeb9691753da5c06923a6c31190abe01a62"
-ENV CPPFLAGS="-I/opt/jemalloc/include"
-ENV LDFLAGS="-L/opt/jemalloc/lib/"
+ENV RUBY_MAJOR 2.6
+ENV RUBY_VERSION 2.6.5
+ENV RUBY_DOWNLOAD_SHA256 d5d6da717fd48524596f9b78ac5a2eeb9691753da5c06923a6c31190abe01a62
 
 RUN set -eu; \
     \
@@ -83,13 +68,14 @@ RUN set -eu; \
     \
     cd /usr/src/ruby; \
     \
-# https://github.com/docker-library/ruby/issues/196
-# https://bugs.ruby-lang.org/issues/14387#note-13 (patch source)
-# https://bugs.ruby-lang.org/issues/14387#note-16 ("Therefore ncopa's patch looks good for me in general." -- only breaks glibc which doesn't matter here)
-    wget -O 'thread-stack-fix.patch' 'https://bugs.ruby-lang.org/attachments/download/7081/0001-thread_pthread.c-make-get_main_stack-portable-on-lin.patch'; \
-    echo '3ab628a51d92fdf0d2b5835e93564857aea73e0c1de00313864a94a6255cb645 *thread-stack-fix.patch' | sha256sum --check --strict; \
-    patch -p1 -i thread-stack-fix.patch; \
-    rm thread-stack-fix.patch; \
+    wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
+    echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
+    \
+    mkdir -p /usr/src/ruby; \
+    tar -xJf ruby.tar.xz -C /usr/src/ruby --strip-components=1; \
+    rm ruby.tar.xz; \
+    \
+    cd /usr/src/ruby; \
     \
 # hack in "ENABLE_PATH_CHECK" disabling to suppress:
 #   warning: Insecure world writable dir
@@ -102,63 +88,50 @@ RUN set -eu; \
     \
     autoconf; \
     gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
-# the configure script does not detect isnan/isinf as macros
-    export ac_cv_func_isnan=yes ac_cv_func_isinf=yes; \
     ./configure \
         --build="$gnuArch" \
         --with-jemalloc \
         --disable-install-doc \
         --enable-shared \
     ; \
-    ln -sf /opt/jemalloc/lib/libjemalloc.a /usr/local/lib/; \
-    ln -sf /opt/jemalloc/lib/libjemalloc.so /usr/local/lib/; \
-    ln -sf /opt/jemalloc/lib/libjemalloc.so.2 /usr/local/lib/; \
-    ln -sf /opt/jemalloc/lib/libjemalloc_pic.a /usr/local/lib/; \
     make -j "$(nproc)"; \
     make install; \
     \
-    runDeps="$( \
-        scanelf --needed --nobanner --format '%n#p' --recursive /usr/local \
-            | tr ',' '\n' \
-            | sort -u \
-            | awk 'system("[ -e /usr/local/lib/" $1 " ]") == 0 { next } { print "so:" $1 }' \
-    )"; \
-    apk add --no-network --virtual .ruby-rundeps \
-        $runDeps \
-        bzip2 \
-        ca-certificates \
-        libffi-dev \
-        procps \
-        yaml-dev \
-        zlib-dev \
+    apt-mark auto '.*' > /dev/null; \
+    apt-mark manual $savedAptMark > /dev/null; \
+    find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
+        | awk '/=>/ { print $(NF-1) }' \
+        | sort -u \
+        | xargs -r dpkg-query --search \
+        | cut -d: -f1 \
+        | sort -u \
+        | xargs -r apt-mark manual \
     ; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     \
     cd /; \
     rm -r /usr/src/ruby; \
 # verify we have no "ruby" packages installed
-    ! apk --no-network list --installed \
-        | grep -v '^[.]ruby-rundeps' \
-        | grep -i ruby \
-    ; \
+    ! dpkg -l | grep -i ruby; \
     [ "$(command -v ruby)" = '/usr/local/bin/ruby' ]; \
 # rough smoke test
     ruby --version; \
-    ruby -r rbconfig -e "puts RbConfig::CONFIG['LIBS']"; \
     gem --version; \
-    bundle --version; \
-    apk del --no-network .build-deps
+    bundle --version
+
+# Sanity check for jemalloc
+RUN ruby -r rbconfig -e "abort 'jemalloc not enabled' unless RbConfig::CONFIG['LIBS'].include?('jemalloc') || RbConfig::CONFIG['MAINLIBS'].include?('jemalloc')"
 
 # install things globally, for great justice
 # and don't create ".bundle" in all our apps
-ENV GEM_HOME="/usr/local/bundle"
+ENV GEM_HOME /usr/local/bundle
 ENV BUNDLE_PATH="$GEM_HOME" \
     BUNDLE_SILENCE_ROOT_WARNING=1 \
     BUNDLE_APP_CONFIG="$GEM_HOME"
 # path recommendation: https://github.com/bundler/bundler/pull/6469#issuecomment-383235438
-ENV PATH="$GEM_HOME/bin:$BUNDLE_PATH/gems/bin:$PATH"
+ENV PATH $GEM_HOME/bin:$BUNDLE_PATH/gems/bin:$PATH
 # adjust permissions of a few directories for running "gem install" as an arbitrary user
-RUN set -eu; \
-    \
-    mkdir -p "$GEM_HOME" && chmod 777 "$GEM_HOME" && \
-    gem install bundler; \
-    irb
+RUN mkdir -p "$GEM_HOME" && chmod 777 "$GEM_HOME"
+# (BUNDLE_PATH = GEM_HOME, no need to mkdir/chown both)
+
+CMD [ "irb" ]
