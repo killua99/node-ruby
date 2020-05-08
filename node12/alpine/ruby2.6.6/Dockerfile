@@ -30,3 +30,7 @@ COPY --from=Node /usr/local/bin/yarnpkg /usr/local/bin/yarnpkg
 COPY --from=Jemalloc /usr/local/lib/libjemalloc.so.2 /usr/local/lib/
 
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
+
+RUN set -eux; \
+  \
+  gem install bundler
