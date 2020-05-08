@@ -13,7 +13,7 @@ while [[ $# -gt 0 ]]; do
 
 Comman usage:
 
-./build.sh [<version>] --latest -d|--debug -h|--help
+./build.sh [<version>] [<path/dockerfile>] --latest -d|--debug -h|--help
 
 Arguments:
 
@@ -30,9 +30,9 @@ Help:
   This bash script is a helper to tag new mastodon build using alpine as base
   full usage example:
 
-    ``./build.sh "10-2.6.5" --latest``
+    ``./build.sh "12-2.6.5" --latest``
 
-    ``./build.sh "10-2.6.5" --debug``
+    ``./build.sh "12-2.6.5" --debug``
 
 EOF
             exit 0
@@ -54,8 +54,8 @@ done
 
 set -- "${POSITIONAL[@]}"
 
-MASTODON_VERSION="v${1:-2.9.3}"
 TAG="${1:-latest}"
+BUILD_LOCATION="${2:-node12/ruby2.6.5}"
 LATEST=${LATEST:-""}
 
 cat <<EOF
@@ -70,8 +70,18 @@ If you wish to build for only one platform please ask for help: ``./build.sh -h|
 
 EOF
 
-time docker buildx build \
+docker buildx build \
     --push \
     --platform linux/amd64,linux/arm64,linux/arm/v7 \
     ${LATEST} \
-    -t killua99/node-ruby:${TAG} .
+    -t killua99/node-ruby:${TAG} ${BUILD_LOCATION}
+
+if [[ test ! -z "$(docker images -q killua99/node-ruby:${TAG})" && ${PUSHOVER_API_KEY} ]]; then
+    curl -s \
+        --form-string "token=${PUSHOVER_API_KEY}" \
+        --form-string "user=${PUSHOVER_USER_KEY}" \
+        --form-string "message=Node Ruby docker build 🚢
+
+Build ${TAG} complete" \
+        https://api.pushover.net/1/messages.json
+fi
