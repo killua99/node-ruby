@@ -13,7 +13,7 @@ while [[ $# -gt 0 ]]; do
 
 Comman usage:
 
-./build.sh [<version>] [<path/dockerfile>] --latest -d|--debug -h|--help
+./build.sh [<version>] [<major_version>] [<path/dockerfile>] --latest -d|--debug -h|--help
 
 Arguments:
 
@@ -27,12 +27,12 @@ Options:
 
 Help:
 
-  This bash script is a helper to tag new mastodon build using alpine as base
+  This bash script is a helper to tag new mastodon build using alpine or buster-slim as base
   full usage example:
 
-    ``./build.sh "12-2.6.5" --latest``
-
-    ``./build.sh "12-2.6.5" --debug``
+    ``./build.sh 12-2.6.5 12-2.6 node12/ruby2.6.5 --latest``
+    ``./build.sh 13.14-2.7.1-alpine3.11 13-2.7-alpine node13/alpine/ruby2.7.1 --latest``
+    ``./build.sh 12-2.6.5 12-2.6 node12/ruby2.6.5 --debug``
 
 EOF
             exit 0
@@ -55,7 +55,8 @@ done
 set -- "${POSITIONAL[@]}"
 
 TAG="${1:-latest}"
-BUILD_LOCATION="${2:-node12/ruby2.6.5}"
+MAJOR_TAG="${2:-12-2.6}"
+BUILD_LOCATION="${3:-node12/ruby2.6.5}"
 LATEST=${LATEST:-""}
 
 cat <<EOF
@@ -74,9 +75,10 @@ docker buildx build \
     --push \
     --platform linux/amd64,linux/arm64,linux/arm/v7 \
     ${LATEST} \
+    -t killua99/node-ruby:${MAJOR_TAG} \
     -t killua99/node-ruby:${TAG} ${BUILD_LOCATION}
 
-if [[ test ! -z "$(docker images -q killua99/node-ruby:${TAG})" && ${PUSHOVER_API_KEY} ]]; then
+if test ! -z "$(docker images -q killua99/node-ruby:${TAG})" && ! -z ${PUSHOVER_API_KEY}; then
     curl -s \
         --form-string "token=${PUSHOVER_API_KEY}" \
         --form-string "user=${PUSHOVER_USER_KEY}" \

@@ -1,6 +1,6 @@
-FROM node:13.14.0-buster-slim as Node
+FROM node:13.14.0-alpine3.11 as Node
 
-FROM ruby:2.7.1-slim-buster as Jemalloc
+FROM ruby:2.7.1-alpine3.11 as Jemalloc
 
 RUN wget -O - https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2 | tar -xj && \
     cd jemalloc-5.2.1 && \
@@ -8,7 +8,7 @@ RUN wget -O - https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemal
     make && \
     make install
 
-FROM ruby:2.7.1-slim-buster
+FROM ruby:2.7.1-alpine3.11
 
 ENV NODE_VERSION 13.14.0
 ENV YARN_VERSION 1.22.4
