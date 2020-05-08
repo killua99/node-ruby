@@ -4,27 +4,38 @@ RUN set -eux; \
     \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        git \
-        yarn \
-        icu-devtools \
-        protobuf-compiler \
-        imagemagick \
-        ffmpeg \
-        libidn11 \
-        yaml-mode \
-        postgresql-11 \
-        tini \
         bzip2 \
         ca-certificates \
+        git \
+        libjemalloc-dev \
         libffi-dev \
+        libicu-dev \
+        libidn11-dev \
         libgmp-dev \
+        libprotobuf-dev \
+        libpq-dev \
         libssl-dev \
         libyaml-dev \
+        yarnpkg \
         procps \
+        tini \
+        protobuf-compiler \
         zlib1g-dev \
-        libjemalloc-dev \
+        whois \
     ; \
     rm -rf /var/lib/apt/lists/*; \
+    \
+    mkdir -p /usr/local/etc; \
+    { \
+        echo 'install: --no-document'; \
+        echo 'update: --no-document'; \
+    } >> /usr/local/etc/gemrc
+
+ENV RUBY_MAJOR 2.6
+ENV RUBY_VERSION 2.6.5
+ENV RUBY_DOWNLOAD_SHA256 d5d6da717fd48524596f9b78ac5a2eeb9691753da5c06923a6c31190abe01a62
+
+RUN set -eu; \
     \
     savedAptMark="$(apt-mark showmanual)"; \
     apt-get update; \
@@ -47,17 +58,6 @@ RUN set -eux; \
         xz-utils \
     ; \
     rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /usr/local/etc; \
-    { \
-        echo 'install: --no-document'; \
-        echo 'update: --no-document'; \
-    } >> /usr/local/etc/gemrc
-
-ENV RUBY_MAJOR 2.6
-ENV RUBY_VERSION 2.6.5
-ENV RUBY_DOWNLOAD_SHA256 d5d6da717fd48524596f9b78ac5a2eeb9691753da5c06923a6c31190abe01a62
-
-RUN set -eu; \
     \
     wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
     echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
@@ -112,12 +112,7 @@ RUN set -eu; \
     cd /; \
     rm -r /usr/src/ruby; \
 # verify we have no "ruby" packages installed
-    ! dpkg -l | grep -i ruby; \
-    [ "$(command -v ruby)" = '/usr/local/bin/ruby' ]; \
-# rough smoke test
-    ruby --version; \
-    gem --version; \
-    bundle --version
+    ! dpkg -l | grep -i ruby
 
 # Sanity check for jemalloc
 RUN ruby -r rbconfig -e "abort 'jemalloc not enabled' unless RbConfig::CONFIG['LIBS'].include?('jemalloc') || RbConfig::CONFIG['MAINLIBS'].include?('jemalloc')"
@@ -131,7 +126,9 @@ ENV BUNDLE_PATH="$GEM_HOME" \
 # path recommendation: https://github.com/bundler/bundler/pull/6469#issuecomment-383235438
 ENV PATH $GEM_HOME/bin:$BUNDLE_PATH/gems/bin:$PATH
 # adjust permissions of a few directories for running "gem install" as an arbitrary user
-RUN mkdir -p "$GEM_HOME" && chmod 777 "$GEM_HOME"
+RUN mkdir -p "$GEM_HOME" && chmod 777 "$GEM_HOME"; \
+    gem install bundler
+
 # (BUNDLE_PATH = GEM_HOME, no need to mkdir/chown both)
 
 CMD [ "irb" ]
