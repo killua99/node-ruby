@@ -24,8 +24,7 @@ ENV YARN_VERSION 1.22.4
 
 COPY --from=Node /usr/local/bin/node /usr/local/bin/node
 COPY --from=Node /usr/local/bin/npm /usr/local/bin/npm
-COPY --from=Node /usr/local/bin/yarn /usr/local/bin/yarn
-COPY --from=Node /usr/local/bin/yarnpkg /usr/local/bin/yarnpkg
+COPY --from=Node /opt/yarn-v$YARN_VERSION /opt/yarn-v$YARN_VERSION
 
 COPY --from=Jemalloc /usr/local/lib/libjemalloc.so.2 /usr/local/lib/
 
@@ -33,4 +32,7 @@ ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
 
 RUN set -eux; \
   \
+  ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
+  ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn; \
+  ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg; \
   gem install bundler
