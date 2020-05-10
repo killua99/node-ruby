@@ -1,134 +1,38 @@
-FROM node:13-buster-slim
+FROM node:13.14.0-burst-slim as Node
+
+FROM ruby:2.6.6-alpine3.11 as Jemalloc
 
 RUN set -eux; \
-    \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        bzip2 \
-        ca-certificates \
-        git \
-        libjemalloc-dev \
-        libffi-dev \
-        libicu-dev \
-        libidn11-dev \
-        libgmp-dev \
-        libprotobuf-dev \
-        libpq-dev \
-        libssl-dev \
-        libyaml-dev \
-        yarnpkg \
-        procps \
-        tini \
-        protobuf-compiler \
-        zlib1g-dev \
-        whois \
-    ; \
-    rm -rf /var/lib/apt/lists/*; \
-    \
-    mkdir -p /usr/local/etc; \
-    { \
-        echo 'install: --no-document'; \
-        echo 'update: --no-document'; \
-    } >> /usr/local/etc/gemrc
-
-ENV RUBY_MAJOR 2.6
-ENV RUBY_VERSION 2.6.6
-ENV RUBY_DOWNLOAD_SHA256 5db187882b7ac34016cd48d7032e197f07e4968f406b0690e20193b9b424841f
-
-RUN set -eu; \
-    \
-    savedAptMark="$(apt-mark showmanual)"; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        autoconf \
-        bison \
-        dpkg-dev \
-        gcc \
-        libbz2-dev \
-        libgdbm-compat-dev \
-        libgdbm-dev \
-        libglib2.0-dev \
-        libncurses-dev \
-        libreadline-dev \
-        libxml2-dev \
-        libxslt-dev \
-        make \
-        ruby \
-        wget \
-        xz-utils \
-    ; \
-    rm -rf /var/lib/apt/lists/*; \
-    \
-    wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
-    echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
-    \
-    mkdir -p /usr/src/ruby; \
-    tar -xJf ruby.tar.xz -C /usr/src/ruby --strip-components=1; \
-    rm ruby.tar.xz; \
-    \
-    cd /usr/src/ruby; \
-    \
-    wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
-    echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
-    \
-    mkdir -p /usr/src/ruby; \
-    tar -xJf ruby.tar.xz -C /usr/src/ruby --strip-components=1; \
-    rm ruby.tar.xz; \
-    \
-    cd /usr/src/ruby; \
-    \
-# hack in "ENABLE_PATH_CHECK" disabling to suppress:
-#   warning: Insecure world writable dir
-    { \
-        echo '#define ENABLE_PATH_CHECK 0'; \
-        echo; \
-        cat file.c; \
-    } > file.c.new; \
-    mv file.c.new file.c; \
-    \
-    autoconf; \
-    gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
-    ./configure \
-        --build="$gnuArch" \
-        --with-jemalloc \
-        --disable-install-doc \
-        --enable-shared \
-    ; \
-    make -j "$(nproc)"; \
+  \
+  apk update --no-cache -q; \
+  apk add --no-cache --virtual .ruby-builddeps \
+    autoconf \
+    build-base \
+  ; \
+  wget -O - https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2 | tar -xj; \
+    cd jemalloc-5.2.1; \
+    ./autogen.sh; \
+    ./configure; \
+    make -j$(nproc) > /dev/null; \
     make install; \
-    \
-    apt-mark auto '.*' > /dev/null; \
-    apt-mark manual $savedAptMark > /dev/null; \
-    find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
-        | awk '/=>/ { print $(NF-1) }' \
-        | sort -u \
-        | xargs -r dpkg-query --search \
-        | cut -d: -f1 \
-        | sort -u \
-        | xargs -r apt-mark manual \
-    ; \
-    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
-    \
-    cd /; \
-    rm -r /usr/src/ruby; \
-# verify we have no "ruby" packages installed
-    ! dpkg -l | grep -i ruby
+  apk del --no-network .ruby-builddeps;
 
-# Sanity check for jemalloc
-RUN ruby -r rbconfig -e "abort 'jemalloc not enabled' unless RbConfig::CONFIG['LIBS'].include?('jemalloc') || RbConfig::CONFIG['MAINLIBS'].include?('jemalloc')"
+FROM ruby:2.6.6-alpine3.11
 
-# install things globally, for great justice
-# and don't create ".bundle" in all our apps
-ENV GEM_HOME /usr/local/bundle
-ENV BUNDLE_PATH="$GEM_HOME" \
-    BUNDLE_SILENCE_ROOT_WARNING=1 \
-    BUNDLE_APP_CONFIG="$GEM_HOME"
-# path recommendation: https://github.com/bundler/bundler/pull/6469#issuecomment-383235438
-ENV PATH $GEM_HOME/bin:$BUNDLE_PATH/gems/bin:$PATH
-# adjust permissions of a few directories for running "gem install" as an arbitrary user
-RUN mkdir -p "$GEM_HOME" && chmod 777 "$GEM_HOME"; \
-    gem install bundler
+ENV NODE_VERSION 12.16.3
+ENV YARN_VERSION 1.22.4
 
-# (BUNDLE_PATH = GEM_HOME, no need to mkdir/chown both)
+COPY --from=Node /usr/local/bin/node /usr/local/bin/node
+COPY --from=Node /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=Node /opt/yarn-v$YARN_VERSION /opt/yarn-v$YARN_VERSION
 
-CMD [ "irb" ]
+COPY --from=Jemalloc /usr/local/lib/libjemalloc.so.2 /usr/local/lib/
+
+ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
+
+RUN set -eux; \
+  \
+  ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
+  ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn; \
+  ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg; \
+  yarn global add node-gyp
