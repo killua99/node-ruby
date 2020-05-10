@@ -78,7 +78,7 @@ docker buildx build \
     -t killua99/node-ruby:${MAJOR_TAG} \
     -t killua99/node-ruby:${TAG} ${BUILD_LOCATION}
 
-if test ! -z "$(docker images -q killua99/node-ruby:${TAG})" && test ! -z ${PUSHOVER_API_KEY}; then
+if [[ ! -z ${PUSHOVER_API_KEY} ]]; then
     curl -s \
         --form-string "token=${PUSHOVER_API_KEY}" \
         --form-string "user=${PUSHOVER_USER_KEY}" \

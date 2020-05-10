@@ -15,7 +15,7 @@ RUN set -eux; \
     ./configure; \
     make -j$(nproc) > /dev/null; \
     make install; \
-  apk del --no-network .ruby-builddeps;
+  apk del --no-network .ruby-builddeps
 
 FROM ruby:2.6.6-alpine3.11
 
@@ -32,7 +32,16 @@ ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
 
 RUN set -eux; \
   \
+  apk update --no-cache -q; \
+  apk add --no-cache --virtual .node-builddeps \
+    build-base \
+    python \
+  ; \
+  \
   ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
   ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn; \
   ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg; \
-  gem install bundler
+  \
+  yarn global add node-sass node-gyp; \
+  \
+  apk del --no-network .node-builddeps
